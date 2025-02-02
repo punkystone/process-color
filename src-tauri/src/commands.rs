@@ -8,7 +8,8 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
-    mqtt::MqttClient, mqtt_settings::MqttSettings, process_entry::ProcessEntry, storage::Storage,
+    log, mqtt::MqttClient, mqtt_settings::MqttSettings, process_entry::ProcessEntry,
+    storage::Storage,
 };
 
 #[tauri::command]
@@ -16,7 +17,19 @@ pub fn add_process_entry(
     state: State<Arc<Mutex<Vec<ProcessEntry>>>>,
     storage: State<Arc<Mutex<Storage>>>,
 ) {
-    let mut process_entrys = state.lock().unwrap();
+    let process_entrys = state.lock();
+    if process_entrys.is_err() {
+        log("failed to lock process entrys");
+        return;
+    }
+    let mut process_entrys = process_entrys.unwrap();
+    let storage = storage.lock();
+    if storage.is_err() {
+        log("failed to lock storage");
+        return;
+    }
+    let storage = storage.unwrap();
+
     process_entrys.push(ProcessEntry {
         is_running: false,
         name: String::new(),
@@ -24,7 +37,7 @@ pub fn add_process_entry(
         value: String::new(),
         off_value: String::new(),
     });
-    storage.lock().unwrap().save_process_entrys(&process_entrys);
+    storage.save_process_entrys(&process_entrys);
 }
 
 #[tauri::command]
@@ -33,18 +46,42 @@ pub fn delete_process_entry(
     state: State<Arc<Mutex<Vec<ProcessEntry>>>>,
     storage: State<Arc<Mutex<Storage>>>,
 ) {
-    let mut process_entrys = state.lock().unwrap();
+    let process_entrys = state.lock();
+    if process_entrys.is_err() {
+        log("failed to lock process entrys");
+        return;
+    }
+    let mut process_entrys = process_entrys.unwrap();
+    let storage = storage.lock();
+    if storage.is_err() {
+        log("failed to lock storage");
+        return;
+    }
+    let storage = storage.unwrap();
+
     process_entrys.remove(index);
-    storage.lock().unwrap().save_process_entrys(&process_entrys);
+    storage.save_process_entrys(&process_entrys);
 }
 
 #[tauri::command]
 pub fn mqtt_connect(state: State<Arc<Mutex<MqttClient>>>) {
-    state.lock().unwrap().connect();
+    let mqtt_client = state.lock();
+    if mqtt_client.is_err() {
+        log("failed to lock mqtt client");
+        return;
+    }
+    let mut mqtt_client = mqtt_client.unwrap();
+    mqtt_client.connect();
 }
 #[tauri::command]
 pub fn get_mqtt_connection(mqtt_client: State<Arc<Mutex<MqttClient>>>) -> Option<MqttSettings> {
-    return mqtt_client.lock().unwrap().settings.clone();
+    let mqtt_client = mqtt_client.lock();
+    if mqtt_client.is_err() {
+        log("failed to lock mqtt client");
+        return None;
+    }
+    let mqtt_client = mqtt_client.unwrap();
+    return mqtt_client.settings.clone();
 }
 
 #[tauri::command]
@@ -54,32 +91,67 @@ pub fn save_mqtt_connection(
     ip: String,
     port: u16,
 ) {
+    let mqtt_client = mqtt_client.lock();
+    if mqtt_client.is_err() {
+        log("failed to lock mqtt client");
+        return;
+    }
+    let mut mqtt_client = mqtt_client.unwrap();
+
+    let storage = storage.lock();
+    if storage.is_err() {
+        log("failed to lock storage");
+        return;
+    }
+    let storage = storage.unwrap();
+
     let settings = MqttSettings { ip, port };
-    let mut mqtt_client = mqtt_client.lock().unwrap();
-    storage.lock().unwrap().save_mqtt_settings(&settings);
+    storage.save_mqtt_settings(&settings);
     mqtt_client.settings = Some(settings);
     mqtt_client.connect();
 }
 
 #[tauri::command]
 pub fn open_config(app: AppHandle, storage: State<Arc<Mutex<Storage>>>) {
-    let path = &storage.lock().unwrap().path;
+    let storage = storage.lock();
+    if storage.is_err() {
+        log("failed to lock storage");
+        return;
+    }
+    let storage = storage.unwrap();
+
+    let path = &storage.path;
     if path.is_none() {
         return;
     }
-    let _ = app
+    let result = app
         .opener()
         .open_path(path.as_ref().unwrap().display().to_string(), None::<&str>);
+    if result.is_err() {
+        log("failed to open config directory");
+        return;
+    }
 }
 
 #[tauri::command]
 pub fn get_process_entrys(state: State<Arc<Mutex<Vec<ProcessEntry>>>>) -> Vec<ProcessEntry> {
-    state.lock().unwrap().clone()
+    let entries = state.lock();
+    if entries.is_err() {
+        log("failed to lock process entries");
+        return vec![];
+    }
+    let entries = entries.unwrap();
+    entries.clone()
 }
 
 #[tauri::command]
 pub fn get_processes(state: State<Arc<Mutex<HashSet<String>>>>) -> Vec<String> {
-    let processes = state.lock().unwrap();
+    let processes = state.lock();
+    if processes.is_err() {
+        log("failed to lock processes");
+        return vec![];
+    }
+    let processes = processes.unwrap();
     let mut processes = processes.clone().into_iter().collect::<Vec<String>>();
     processes.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
     processes
@@ -95,7 +167,19 @@ pub fn update_process_entry(
     value: String,
     off_value: String,
 ) {
-    let mut process_entrys = state.lock().unwrap();
+    let process_entrys = state.lock();
+    if process_entrys.is_err() {
+        log("failed to lock process entrys");
+        return;
+    }
+    let mut process_entrys = process_entrys.unwrap();
+    let storage = storage.lock();
+    if storage.is_err() {
+        log("failed to lock storage");
+        return;
+    }
+    let storage = storage.unwrap();
+
     for (i, entry) in process_entrys.iter_mut().enumerate() {
         if i == index {
             entry.name = name.clone();
@@ -105,21 +189,32 @@ pub fn update_process_entry(
             break;
         }
     }
-    storage.lock().unwrap().save_process_entrys(&process_entrys);
+    storage.save_process_entrys(&process_entrys);
 }
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) {
     let autostart_manager = app.autolaunch();
     if enabled {
-        let _ = autostart_manager.enable();
+        let result = autostart_manager.enable();
+        if result.is_err() {
+            log("failed to enable autostart");
+        }
     } else {
-        let _ = autostart_manager.disable();
+        let result = autostart_manager.disable();
+        if result.is_err() {
+            log("failed to disable autostart");
+        }
     }
 }
 
 #[tauri::command]
 pub fn get_autostart(app: AppHandle) -> bool {
     let autostart_manager = app.autolaunch();
-    autostart_manager.is_enabled().unwrap()
+    let result = autostart_manager.is_enabled();
+    if result.is_err() {
+        log("failed to check autostart status");
+        return false;
+    }
+    result.unwrap()
 }

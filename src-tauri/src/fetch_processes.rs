@@ -23,7 +23,14 @@ pub fn fetch_processes(processes: Arc<Mutex<HashSet<String>>>) {
                 current_processes.insert(name.to_string());
             }
         }
-        *processes.lock().unwrap() = current_processes;
+        {
+            let processes = processes.lock();
+            if processes.is_err() {
+                continue;
+            }
+            let mut processes = processes.unwrap();
+            *processes = current_processes;
+        }
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     }
 }

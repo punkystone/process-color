@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{mqtt_settings::MqttSettings, process_entry::ProcessEntry};
+use crate::{log, mqtt_settings::MqttSettings, process_entry::ProcessEntry};
 
 pub struct Storage {
     pub path: Option<PathBuf>,
@@ -19,18 +19,29 @@ impl Storage {
         let path = PathBuf::from(path);
 
         if !path.exists() {
-            create_dir_all(&path).unwrap();
+            let result = create_dir_all(&path);
+            if result.is_err() {
+                log("failed to create directory for storage");
+            }
         }
         self.path = Some(path);
     }
 
     pub fn save_process_entrys(&self, process_entrys: &[ProcessEntry]) {
+        let serialized = bincode::serialize(process_entrys);
+        if serialized.is_err() {
+            log("failed to serialize process entrys");
+            return;
+        }
+        let serialized = serialized.unwrap();
         if self.path.is_none() {
             return;
         }
-        let serialized = bincode::serialize(process_entrys).unwrap();
         let path = self.path.as_ref().unwrap();
-        let _ = write(path.join(Self::PROCESS_ENTRYS_PATH), serialized);
+        let result = write(path.join(Self::PROCESS_ENTRYS_PATH), serialized);
+        if result.is_err() {
+            log("failed to write process entrys");
+        }
     }
 
     pub fn get_saved_process_entrys(&self) -> Vec<ProcessEntry> {
@@ -41,8 +52,19 @@ impl Storage {
         if !path.join(Self::PROCESS_ENTRYS_PATH).exists() {
             return vec![];
         }
-        let data = read(path.join(Self::PROCESS_ENTRYS_PATH)).unwrap();
-        bincode::deserialize(&data).unwrap()
+        let data = read(path.join(Self::PROCESS_ENTRYS_PATH));
+        if data.is_err() {
+            log("failed to read process entrys");
+            return vec![];
+        }
+        let data = data.unwrap();
+
+        let deserialized = bincode::deserialize(&data);
+        if deserialized.is_err() {
+            log("failed to deserialize process entrys");
+            return vec![];
+        }
+        deserialized.unwrap()
     }
 
     pub fn get_mqtt_settings(&self) -> MqttSettings {
@@ -55,12 +77,31 @@ impl Storage {
         }
         let path = self.path.as_ref().unwrap();
         if !path.join(Self::MQTT_SETTINGS_PATH).exists() {
-            let serialized = bincode::serialize(&default).unwrap();
-            let _ = write(path.join(Self::MQTT_SETTINGS_PATH), serialized);
+            let serialized = bincode::serialize(&default);
+            if serialized.is_err() {
+                log("failed to serialize mqtt settings");
+                return default;
+            }
+            let serialized = serialized.unwrap();
+
+            let response = write(path.join(Self::MQTT_SETTINGS_PATH), serialized);
+            if response.is_err() {
+                log("failed to write mqtt settings");
+            }
             return default;
         }
-        let data = read(path.join(Self::MQTT_SETTINGS_PATH)).unwrap();
-        bincode::deserialize(&data).unwrap()
+        let data = read(path.join(Self::MQTT_SETTINGS_PATH));
+        if data.is_err() {
+            log("failed to read mqtt settings");
+            return default;
+        }
+        let data = data.unwrap();
+        let deserialized = bincode::deserialize(&data);
+        if deserialized.is_err() {
+            log("failed to deserialize mqtt settings");
+            return default;
+        }
+        deserialized.unwrap()
     }
 
     pub fn save_mqtt_settings(&self, settings: &MqttSettings) {
@@ -68,7 +109,15 @@ impl Storage {
             return;
         }
         let path = self.path.as_ref().unwrap();
-        let serialized = bincode::serialize(settings).unwrap();
-        let _ = write(path.join(Self::MQTT_SETTINGS_PATH), serialized);
+        let serialized = bincode::serialize(settings);
+        if serialized.is_err() {
+            log("failed to serialize mqtt settings");
+            return;
+        }
+        let serialized = serialized.unwrap();
+        let result = write(path.join(Self::MQTT_SETTINGS_PATH), serialized);
+        if result.is_err() {
+            log("failed to write mqtt settings");
+        }
     }
 }
